@@ -1,0 +1,16 @@
+{
+  "name": "turn-based-multiplayer-tetris",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "dev": "concurrently -n server,client -c cyan,green \"npm run dev --workspace=packages/server\" \"npm run dev --workspace=packages/client\"",
+    "build": "npm run build --workspace=packages/client",
+    "start": "npm start --workspace=packages/server"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

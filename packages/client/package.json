@@ -1,0 +1,24 @@
+{
+  "name": "@tetris/client",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "vite --host",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@tetris/shared": "*",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "socket.io-client": "^4.7.5"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "@types/node": "^22.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "typescript": "^5.5.4",
+    "vite": "^5.3.4"
+  }
+}
