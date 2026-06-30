@@ -16,7 +16,8 @@ app.use(cors());
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
 // Serve the built React client in production
-const clientDist = path.resolve(process.cwd(), 'packages/client/dist');
+// __dirname = packages/server/src → ../../client/dist = packages/client/dist
+const clientDist = path.resolve(__dirname, '../../client/dist');
 if (fs.existsSync(clientDist)) {
   app.use(express.static(clientDist));
   app.get('*', (_req, res) => res.sendFile(path.join(clientDist, 'index.html')));
