@@ -5,21 +5,43 @@ import {
   GameState,
   PlayerInfo,
   PieceState,
+  PowerUpType,
   RoomState,
   TURN_SECONDS,
 } from '@tetris/shared';
 import {
   SPAWN_X,
   SPAWN_Y,
+  addGarbageRows,
   createEmptyBoard,
   ghostY,
   isValid,
   lockPiece,
+  nukeBottomRows,
   scoreForLines,
 } from './Board';
 import { PieceQueue } from './PieceQueue';
 
 const NEXT_PREVIEW = 3;
+
+// Gravity interval in ms per level (index = level, clamped at last entry)
+const GRAVITY_MS = [1000, 900, 780, 660, 550, 440, 340, 260, 190, 140, 100];
+
+function gravityForLevel(level: number): number {
+  return GRAVITY_MS[Math.min(level, GRAVITY_MS.length - 1)];
+}
+
+function rollPowerUp(linesCleared: number): PowerUpType | null {
+  if (linesCleared === 0) return null;
+  const chance = linesCleared >= 4 ? 1 : linesCleared >= 2 ? 0.6 : 0.3;
+  if (Math.random() >= chance) return null;
+  const types: PowerUpType[] = ['nuke', 'garbage', 'blindfold'];
+  return types[Math.floor(Math.random() * types.length)];
+}
+
+function emptyPlayer(id: string, name: string): PlayerInfo {
+  return { id, name, score: 0, isConnected: true, powerUps: [], isBlindfolded: false };
+}
 
 export interface GameRoomEvents {
   roomState: (roomCode: string, state: RoomState) => void;
@@ -27,6 +49,7 @@ export interface GameRoomEvents {
   pieceUpdate: (roomCode: string, piece: PieceState) => void;
   timerTick: (roomCode: string, seconds: number) => void;
   gameOver: (roomCode: string, state: GameOverState) => void;
+  powerUpUsed: (roomCode: string, playerId: string, type: PowerUpType, targetId: string) => void;
 }
 
 declare interface GameRoom {
@@ -46,6 +69,9 @@ class GameRoom extends EventEmitter {
   private currentPiece!: PieceState;
   private turnIndex = 0;
   private linesCleared = 0;
+  private lastLinesCleared = 0;
+  private level = 0;
+  private totalLinesForLevel = 0;
 
   // turn timer
   private timerInterval: ReturnType<typeof setInterval> | null = null;
@@ -58,7 +84,7 @@ class GameRoom extends EventEmitter {
     super();
     this.roomCode = roomCode;
     this.hostId = hostId;
-    this.players.set(hostId, { id: hostId, name: hostName, score: 0, isConnected: true });
+    this.players.set(hostId, emptyPlayer(hostId, hostName));
   }
 
   // ─── Lobby ──────────────────────────────────────────────────────────────────
@@ -66,7 +92,7 @@ class GameRoom extends EventEmitter {
   addPlayer(id: string, name: string): boolean {
     if (this.status !== 'lobby') return false;
     if (this.players.size >= 4) return false;
-    this.players.set(id, { id, name, score: 0, isConnected: true });
+    this.players.set(id, emptyPlayer(id, name));
     this.emitRoomState();
     return true;
   }
@@ -84,7 +110,6 @@ class GameRoom extends EventEmitter {
     } else {
       player.isConnected = false;
       this.players.set(id, player);
-      // if the active player disconnects, advance the turn
       if (this.activePlayers()[this.turnIndex]?.id === id) {
         this.advanceTurn();
       }
@@ -109,7 +134,15 @@ class GameRoom extends EventEmitter {
     this.board = createEmptyBoard();
     this.queue = new PieceQueue();
     this.linesCleared = 0;
+    this.lastLinesCleared = 0;
+    this.level = 0;
+    this.totalLinesForLevel = 0;
     this.turnIndex = 0;
+
+    // Reset per-player state
+    for (const [id, p] of this.players) {
+      this.players.set(id, { ...p, score: 0, powerUps: [], isBlindfolded: false });
+    }
 
     this.spawnPiece();
     this.startTurnTimer();
@@ -138,7 +171,6 @@ class GameRoom extends EventEmitter {
       this.currentPiece = rotated;
       this.broadcastPieceUpdate();
     }
-    // TODO: SRS wall kicks can be added here for advanced rotation handling
   }
 
   handleSoftDrop(playerId: string) {
@@ -156,6 +188,40 @@ class GameRoom extends EventEmitter {
     if (!this.isActiveTurn(playerId)) return;
     this.currentPiece = { ...this.currentPiece, y: ghostY(this.board, this.currentPiece) };
     this.lockCurrentPiece();
+  }
+
+  handleUsePowerUp(playerId: string, slot: 0 | 1) {
+    if (!this.isActiveTurn(playerId)) return;
+    const player = this.players.get(playerId);
+    if (!player || !player.powerUps[slot]) return;
+
+    const type = player.powerUps[slot];
+    player.powerUps.splice(slot, 1);
+    this.players.set(playerId, player);
+
+    const active = this.activePlayers();
+    const nextPlayer = active.length > 1
+      ? active[(this.turnIndex + 1) % active.length]
+      : null;
+
+    switch (type) {
+      case 'nuke':
+        this.board = nukeBottomRows(this.board, 3);
+        break;
+      case 'garbage':
+        this.board = addGarbageRows(this.board, 2);
+        break;
+      case 'blindfold':
+        if (nextPlayer) {
+          const target = this.players.get(nextPlayer.id)!;
+          target.isBlindfolded = true;
+          this.players.set(nextPlayer.id, target);
+        }
+        break;
+    }
+
+    this.emit('powerUpUsed', this.roomCode, playerId, type, nextPlayer?.id ?? '');
+    this.emitGameState();
   }
 
   // ─── Internal turn logic ────────────────────────────────────────────────────
@@ -176,7 +242,6 @@ class GameRoom extends EventEmitter {
     this.currentPiece = { type, rotation: 0, x: SPAWN_X, y: SPAWN_Y };
 
     if (!isValid(this.board, this.currentPiece)) {
-      // Even at spawn it collides → game over
       this.endGame('board_full');
     }
   }
@@ -187,12 +252,25 @@ class GameRoom extends EventEmitter {
 
     const { board, linesCleared } = lockPiece(this.board, this.currentPiece);
     this.board = board;
+    this.lastLinesCleared = linesCleared;
     this.linesCleared += linesCleared;
+    this.totalLinesForLevel += linesCleared;
+    this.level = Math.min(
+      Math.floor(this.totalLinesForLevel / 5),
+      GRAVITY_MS.length - 1,
+    );
 
     const activePlayer = this.activePlayers()[this.turnIndex];
     if (activePlayer) {
       const p = this.players.get(activePlayer.id)!;
       p.score += scoreForLines(linesCleared) + 10;
+      p.isBlindfolded = false; // clear debuff after their turn ends
+
+      // Award power-up
+      const award = rollPowerUp(linesCleared);
+      if (award && p.powerUps.length < 2) {
+        p.powerUps.push(award);
+      }
       this.players.set(activePlayer.id, p);
     }
 
@@ -211,6 +289,7 @@ class GameRoom extends EventEmitter {
     this.startTurnTimer();
     this.startGravity();
     this.emitGameState();
+    this.lastLinesCleared = 0; // reset after broadcast so next state starts clean
   }
 
   private startTurnTimer() {
@@ -220,7 +299,6 @@ class GameRoom extends EventEmitter {
       this.timerSeconds--;
       this.emit('timerTick', this.roomCode, this.timerSeconds);
       if (this.timerSeconds <= 0) {
-        // Auto-lock: drop the piece to ghost position and lock
         this.currentPiece = { ...this.currentPiece, y: ghostY(this.board, this.currentPiece) };
         this.lockCurrentPiece();
       }
@@ -243,10 +321,9 @@ class GameRoom extends EventEmitter {
         this.currentPiece = fallen;
         this.broadcastPieceUpdate();
       } else {
-        // Piece has landed — lock it and end the turn
         this.lockCurrentPiece();
       }
-    }, 1000);
+    }, gravityForLevel(this.level));
   }
 
   private stopGravity() {
@@ -274,8 +351,7 @@ class GameRoom extends EventEmitter {
   }
 
   private emitGameState() {
-    const gs = this.buildGameState();
-    this.emit('gameState', this.roomCode, gs);
+    this.emit('gameState', this.roomCode, this.buildGameState());
   }
 
   buildGameState(): GameState {
@@ -287,6 +363,8 @@ class GameRoom extends EventEmitter {
       timerSeconds: this.timerSeconds,
       players: [...this.players.values()],
       linesCleared: this.linesCleared,
+      level: this.level,
+      lastLinesCleared: this.lastLinesCleared,
     };
   }
 

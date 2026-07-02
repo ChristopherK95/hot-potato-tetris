@@ -3,6 +3,7 @@ import {
   BOARD_COLS,
   BOARD_ROWS,
   CellState,
+  GarbageType,
   PieceState,
   PIECE_ROTATIONS,
 } from '@tetris/shared';
@@ -66,3 +67,19 @@ export function scoreForLines(lines: number): number {
 /** Spawn column: centre the 4×4 bounding box on the 10-wide board */
 export const SPAWN_X = 3;
 export const SPAWN_Y = -1; // partially off-screen so piece "enters" the board
+
+/** Add `count` garbage rows to the bottom, removing the topmost rows to compensate */
+export function addGarbageRows(board: Board, count: number): Board {
+  const GARBAGE: GarbageType = 'G';
+  const rows: CellState[][] = Array.from({ length: count }, () => {
+    const hole = Math.floor(Math.random() * BOARD_COLS);
+    return Array.from({ length: BOARD_COLS }, (_, i): CellState => (i === hole ? null : GARBAGE));
+  });
+  return [...board.slice(count), ...rows];
+}
+
+/** Remove the bottom `count` rows, replacing them with empty rows at the top */
+export function nukeBottomRows(board: Board, count: number): Board {
+  const empty: CellState[][] = Array.from({ length: count }, () => Array(BOARD_COLS).fill(null));
+  return [...empty, ...board.slice(0, board.length - count)];
+}

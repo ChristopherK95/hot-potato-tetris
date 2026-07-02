@@ -53,6 +53,10 @@ function wireRoom(room: GameRoom) {
   room.on('gameOver', (roomCode, state) => {
     io.to(roomCode).emit('game:over', state);
   });
+
+  room.on('powerUpUsed', (roomCode, playerId, type, targetId) => {
+    io.to(roomCode).emit('game:powerUpUsed', playerId, type, targetId);
+  });
 }
 
 io.on('connection', socket => {
@@ -105,6 +109,10 @@ io.on('connection', socket => {
 
   socket.on('game:hardDrop', () =>
     roomManager.getRoomForSocket(socket.id)?.handleHardDrop(socket.id),
+  );
+
+  socket.on('game:usePowerUp', slot =>
+    roomManager.getRoomForSocket(socket.id)?.handleUsePowerUp(socket.id, slot),
   );
 
   socket.on('game:leave', () => {

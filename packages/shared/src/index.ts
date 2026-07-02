@@ -66,9 +66,16 @@ export const BOARD_COLS = 10;
 export const BOARD_ROWS = 20;
 export const TURN_SECONDS = 7;
 
-/** null = empty, PieceType = locked cell of that colour */
-export type CellState = PieceType | null;
+/** Garbage rows use a special sentinel that renders as dark grey */
+export type GarbageType = 'G';
+
+/** null = empty, PieceType = locked piece cell, 'G' = garbage row cell */
+export type CellState = PieceType | GarbageType | null;
 export type Board = CellState[][];
+
+// ─── Power-ups ───────────────────────────────────────────────────────────────
+
+export type PowerUpType = 'nuke' | 'garbage' | 'blindfold';
 
 // ─── Game / Room state ───────────────────────────────────────────────────────
 
@@ -86,6 +93,8 @@ export interface PlayerInfo {
   name: string;
   score: number;
   isConnected: boolean;
+  powerUps: PowerUpType[];
+  isBlindfolded: boolean;
 }
 
 export type RoomStatus = 'lobby' | 'playing' | 'gameover';
@@ -105,6 +114,8 @@ export interface GameState {
   timerSeconds: number;
   players: PlayerInfo[];
   linesCleared: number;
+  level: number;
+  lastLinesCleared: number;
 }
 
 export interface GameOverState {
@@ -127,6 +138,7 @@ export interface ClientToServerEvents {
   'game:rotate': (direction: 'cw' | 'ccw') => void;
   'game:softDrop': () => void;
   'game:hardDrop': () => void;
+  'game:usePowerUp': (slot: 0 | 1) => void;
   'game:leave': () => void;
 }
 
@@ -136,5 +148,6 @@ export interface ServerToClientEvents {
   'game:pieceUpdate': (piece: PieceState) => void;
   'game:timerTick': (seconds: number) => void;
   'game:over': (state: GameOverState) => void;
+  'game:powerUpUsed': (playerId: string, type: PowerUpType, targetId: string) => void;
   error: (message: string) => void;
 }
