@@ -24,7 +24,8 @@ import { PieceQueue } from './PieceQueue';
 
 const NEXT_PREVIEW = 3;
 
-const GRAVITY_MS = [1000, 900, 780, 660, 550, 440, 340, 260, 190, 140, 100];
+// Each level is reached every 4 lines; drops are steep so speed ramps up fast
+const GRAVITY_MS = [1000, 780, 600, 450, 330, 235, 160, 105, 70, 45];
 
 function gravityForLevel(level: number): number {
   return GRAVITY_MS[Math.min(level, GRAVITY_MS.length - 1)];
@@ -238,7 +239,7 @@ class GameRoom extends EventEmitter {
     this.linesCleared += linesCleared;
     this.totalLinesForLevel += linesCleared;
     this.level = Math.min(
-      Math.floor(this.totalLinesForLevel / 5),
+      Math.floor(this.totalLinesForLevel / 4),
       GRAVITY_MS.length - 1,
     );
 

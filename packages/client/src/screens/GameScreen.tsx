@@ -445,6 +445,11 @@ export default function GameScreen({ initialState, playerName, onLeave }: Props)
           height={H}
           style={{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none' }}
         />
+        {gs.timerSeconds <= 3 && gs.timerSeconds > 0 && (
+          <div className="big-timer" key={gs.timerSeconds}>
+            {gs.timerSeconds}
+          </div>
+        )}
         {showBanner && (
           <div className="your-turn-banner" key={bannerKey.current}>
             <span>YOUR TURN!</span>

@@ -421,6 +421,33 @@ input {
   line-height: 1.8;
 }
 
+/* ── Big countdown timer ───────────────────────────────────── */
+
+.big-timer {
+  position: absolute;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 130px;
+  font-weight: bold;
+  line-height: 1;
+  color: var(--danger);
+  text-shadow:
+    0 0 30px rgba(255, 85, 85, 0.9),
+    0 0 70px rgba(255, 85, 85, 0.5),
+    0 4px 12px rgba(0, 0, 0, 0.8);
+  pointer-events: none;
+  z-index: 12;
+  animation: big-timer-pop 0.95s ease-out forwards;
+}
+
+@keyframes big-timer-pop {
+  0%   { opacity: 0; transform: translateX(-50%) scale(1.6); }
+  18%  { opacity: 1; transform: translateX(-50%) scale(1.0); }
+  72%  { opacity: 1; }
+  100% { opacity: 0; transform: translateX(-50%) scale(0.8); }
+}
+
 /* ── Roulette notification ─────────────────────────────────── */
 
 .roulette-notification {
