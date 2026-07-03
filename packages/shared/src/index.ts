@@ -73,9 +73,16 @@ export type GarbageType = 'G';
 export type CellState = PieceType | GarbageType | null;
 export type Board = CellState[][];
 
-// ─── Power-ups ───────────────────────────────────────────────────────────────
+// ─── Roulette events ──────────────────────────────────────────────────────────
 
-export type PowerUpType = 'nuke' | 'garbage' | 'blindfold';
+/**
+ * Random modifier triggered when lines are cleared.
+ * lucky_clear  — board bottom 2 rows removed (good for everyone)
+ * garbage_2    — 2 garbage rows added to the board
+ * garbage_3    — 3 garbage rows added (Tetris only)
+ * blindfold    — next active player's piece preview hidden for their turn
+ */
+export type RouletteEventType = 'lucky_clear' | 'garbage_2' | 'garbage_3' | 'blindfold';
 
 // ─── Game / Room state ───────────────────────────────────────────────────────
 
@@ -93,7 +100,6 @@ export interface PlayerInfo {
   name: string;
   score: number;
   isConnected: boolean;
-  powerUps: PowerUpType[];
   isBlindfolded: boolean;
 }
 
@@ -138,7 +144,6 @@ export interface ClientToServerEvents {
   'game:rotate': (direction: 'cw' | 'ccw') => void;
   'game:softDrop': () => void;
   'game:hardDrop': () => void;
-  'game:usePowerUp': (slot: 0 | 1) => void;
   'game:leave': () => void;
 }
 
@@ -148,6 +153,10 @@ export interface ServerToClientEvents {
   'game:pieceUpdate': (piece: PieceState) => void;
   'game:timerTick': (seconds: number) => void;
   'game:over': (state: GameOverState) => void;
-  'game:powerUpUsed': (playerId: string, type: PowerUpType, targetId: string) => void;
+  'game:rouletteEvent': (
+    type: RouletteEventType,
+    triggeringPlayerId: string,
+    targetId: string,
+  ) => void;
   error: (message: string) => void;
 }

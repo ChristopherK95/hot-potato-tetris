@@ -87,19 +87,20 @@ export const sound = {
     );
   },
 
-  powerUpGet(): void {
+  rouletteLucky(): void {
     [440, 550, 660, 880].forEach((f, i) =>
-      tone(f, 'sine', 0.12, 0.16, i * 0.06),
+      tone(f, 'sine', 0.14, 0.2, i * 0.07),
     );
   },
 
-  powerUpUse(): void {
-    tone(880, 'sawtooth', 0.2, 0.11);
-    tone(440, 'sawtooth', 0.15, 0.17, 0.1);
-  },
-
-  powerUpHit(): void {
+  rouletteBad(): void {
     noise(0.28, 0.22);
     tone(65, 'sawtooth', 0.22, 0.32);
+  },
+
+  rouletteBlind(): void {
+    tone(330, 'triangle', 0.18, 0.12);
+    tone(220, 'triangle', 0.15, 0.18, 0.1);
+    tone(165, 'triangle', 0.12, 0.25, 0.2);
   },
 };

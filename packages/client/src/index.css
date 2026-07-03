@@ -421,67 +421,33 @@ input {
   line-height: 1.8;
 }
 
-/* ── Power-ups ─────────────────────────────────────────────── */
+/* ── Roulette notification ─────────────────────────────────── */
 
-.powerup-slots {
-  display: flex;
-  gap: 8px;
-  margin-top: 4px;
-}
-
-.powerup-slot {
-  flex: 1;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  padding: 7px 4px 5px;
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  min-height: 58px;
-  transition: border-color 0.2s;
-}
-
-.powerup-slot.filled {
-  border-color: var(--accent);
-}
-
-.powerup-icon { font-size: 20px; line-height: 1.2; }
-
-.powerup-name {
-  font-size: 8px;
-  color: var(--dim);
-  letter-spacing: 0.5px;
-}
-
-.slot-key {
-  font-size: 9px;
-  color: var(--dim);
-  border: 1px solid var(--border);
-  border-radius: 2px;
-  padding: 0 4px;
-  line-height: 1.6;
-  margin-top: 2px;
-}
-
-.powerup-notification {
+.roulette-notification {
   position: absolute;
   top: 14px;
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(10, 10, 20, 0.92);
-  border: 1px solid var(--accent);
-  border-radius: 5px;
-  padding: 7px 14px;
-  font-size: 12px;
+  background: rgba(10, 10, 20, 0.94);
+  border-radius: 6px;
+  padding: 9px 18px;
+  font-size: 13px;
+  font-weight: bold;
+  letter-spacing: 0.5px;
   color: var(--text);
   pointer-events: none;
   white-space: nowrap;
   z-index: 20;
-  animation: fade-in 0.15s ease-out;
+  animation: roulette-pop 0.2s ease-out;
+}
+
+.roulette-notification.good { border: 1px solid var(--success); color: var(--success); }
+.roulette-notification.bad  { border: 1px solid var(--danger);  color: #ff8888; }
+
+@keyframes roulette-pop {
+  0%   { opacity: 0; transform: translateX(-50%) scale(0.8); }
+  60%  { transform: translateX(-50%) scale(1.06); }
+  100% { opacity: 1; transform: translateX(-50%) scale(1); }
 }
 
 /* ── Sidebar extras ────────────────────────────────────────── */
@@ -511,12 +477,6 @@ input {
   letter-spacing: 3px;
 }
 
-.dim-label {
-  font-size: 8px;
-  color: var(--dim);
-  font-weight: normal;
-  letter-spacing: 0.5px;
-}
 
 /* ── Game Over ────────────────────────────────────────────── */
 

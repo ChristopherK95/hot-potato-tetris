@@ -16,7 +16,7 @@ export default function WaitingScreen({ roomCode, playerName, isHost, roomState 
       <div className="room-code-box">
         <p className="room-code-label">ROOM CODE</p>
         <p className="room-code">{roomCode}</p>
-        <p className="room-code-hint">Share this with your friends</p>
+        <p className="room-code-hint">Play solo or share with friends (2–4 players)</p>
       </div>
 
       <div className="player-list-card">

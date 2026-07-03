@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import type { GameState, PieceState, PieceType, PowerUpType } from '@tetris/shared';
+import type { GameState, PieceState, PieceType, RouletteEventType } from '@tetris/shared';
 import {
   BOARD_COLS,
   BOARD_ROWS,
@@ -25,16 +25,11 @@ interface Particle {
   color: string;
 }
 
-const POWERUP_ICONS: Record<PowerUpType, string> = {
-  nuke:      '💥',
-  garbage:   '🗑️',
-  blindfold: '🙈',
-};
-
-const POWERUP_LABELS: Record<PowerUpType, string> = {
-  nuke:      'NUKE',
-  garbage:   'GARBAGE',
-  blindfold: 'BLINDFOLD',
+const ROULETTE_INFO: Record<RouletteEventType, { label: string; good: boolean; emoji: string }> = {
+  lucky_clear: { label: '2 rows cleared!',   good: true,  emoji: '🍀' },
+  garbage_2:   { label: '+2 garbage rows!',  good: false, emoji: '🗑️' },
+  garbage_3:   { label: '+3 garbage rows!!', good: false, emoji: '💀' },
+  blindfold:   { label: 'Blindfolded!',      good: false, emoji: '🙈' },
 };
 
 function hexColor(n: number): string {
@@ -141,7 +136,7 @@ export default function GameScreen({ initialState, playerName, onLeave }: Props)
   const [gs, setGs] = useState<GameState>(initialState);
   const [showBanner, setShowBanner] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
-  const [powerUpMsg, setPowerUpMsg] = useState<string | null>(null);
+  const [rouletteMsg, setRouletteMsg] = useState<{ text: string; good: boolean } | null>(null);
 
   const boardRef = useRef<HTMLCanvasElement>(null);
   const particleCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -161,20 +156,17 @@ export default function GameScreen({ initialState, playerName, onLeave }: Props)
   const confirmLeaveRef = useRef(false);
   confirmLeaveRef.current = confirmLeave;
 
-  // Refs for stale-closure-free access inside socket/rAF callbacks
   const gsRef = useRef<GameState>(initialState);
   gsRef.current = gs;
 
   // Particle system
   const particlesRef = useRef<Particle[]>([]);
   const flashAlphaRef = useRef(0);
+  const flashColorRef = useRef('255,255,255');
   const rAFRef = useRef<number | null>(null);
 
-  // Level tracking for level-up detection
   const prevLevelRef = useRef(0);
-
-  // Power-up message timeout
-  const powerUpMsgTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rouletteMsgTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Particle animation loop ───────────────────────────────────────────────────
   const animateParticlesRef = useRef<() => void>(null!);
@@ -185,14 +177,12 @@ export default function GameScreen({ initialState, playerName, onLeave }: Props)
       const ctx = canvas.getContext('2d')!;
       ctx.clearRect(0, 0, W, H);
 
-      // Screen flash
       if (flashAlphaRef.current > 0.005) {
-        ctx.fillStyle = `rgba(255,255,255,${flashAlphaRef.current.toFixed(3)})`;
+        ctx.fillStyle = `rgba(${flashColorRef.current},${flashAlphaRef.current.toFixed(3)})`;
         ctx.fillRect(0, 0, W, H);
         flashAlphaRef.current = Math.max(0, flashAlphaRef.current - 0.035);
       }
 
-      // Particles
       particlesRef.current.forEach(p => {
         ctx.globalAlpha = Math.max(0, p.alpha);
         ctx.fillStyle = p.color;
@@ -213,8 +203,8 @@ export default function GameScreen({ initialState, playerName, onLeave }: Props)
     };
   });
 
-  function spawnParticles(count: number) {
-    const hues = [180, 270, 60, 120, 0, 210];
+  function spawnParticles(count: number, hueShift = 0) {
+    const hues = [180, 270, 60, 120, 0, 210].map(h => h + hueShift);
     const newParticles: Particle[] = Array.from({ length: count }, (_, i) => ({
       x: Math.random() * W,
       y: H * 0.45 + (Math.random() - 0.5) * H * 0.55,
@@ -231,7 +221,8 @@ export default function GameScreen({ initialState, playerName, onLeave }: Props)
     }
   }
 
-  function triggerFlash(intensity: number) {
+  function triggerFlash(rgb: string, intensity: number) {
+    flashColorRef.current = rgb;
     flashAlphaRef.current = intensity;
     if (!rAFRef.current) {
       rAFRef.current = requestAnimationFrame(animateParticlesRef.current);
@@ -242,9 +233,15 @@ export default function GameScreen({ initialState, playerName, onLeave }: Props)
     const el = boardWrapRef.current;
     if (!el) return;
     el.classList.remove('shake');
-    void el.offsetWidth; // force reflow to restart animation
+    void el.offsetWidth;
     el.classList.add('shake');
     setTimeout(() => el.classList.remove('shake'), 380);
+  }
+
+  function showRouletteMsg(text: string, good: boolean) {
+    if (rouletteMsgTimeoutRef.current) clearTimeout(rouletteMsgTimeoutRef.current);
+    setRouletteMsg({ text, good });
+    rouletteMsgTimeoutRef.current = setTimeout(() => setRouletteMsg(null), 3000);
   }
 
   // ── Socket listeners ────────────────────────────────────────────────────────
@@ -254,11 +251,12 @@ export default function GameScreen({ initialState, playerName, onLeave }: Props)
     socket.on('game:state', (state: GameState) => {
       const wasMyTurn = isMyTurnRef.current;
       const nowMyTurn = state.currentPlayerId === myId;
+      const isSolo = state.players.filter(p => p.isConnected).length <= 1;
 
       if (state.lastLinesCleared > 0) {
         sound.lineClear(state.lastLinesCleared);
         spawnParticles(state.lastLinesCleared * 22);
-        if (state.lastLinesCleared >= 4) triggerFlash(0.55);
+        if (state.lastLinesCleared >= 4) triggerFlash('255,255,255', 0.55);
       }
 
       if (state.level > prevLevelRef.current) {
@@ -269,7 +267,7 @@ export default function GameScreen({ initialState, playerName, onLeave }: Props)
       gsRef.current = state;
       setGs(state);
 
-      if (!wasMyTurn && nowMyTurn) {
+      if (!wasMyTurn && nowMyTurn && !isSolo) {
         bannerKey.current += 1;
         setShowBanner(true);
         setTimeout(() => setShowBanner(false), 1900);
@@ -295,33 +293,39 @@ export default function GameScreen({ initialState, playerName, onLeave }: Props)
       else sound.timerTick();
     });
 
-    socket.on('game:powerUpUsed', (playerId: string, type: PowerUpType, targetId: string) => {
+    socket.on('game:rouletteEvent', (type: RouletteEventType, triggeringPlayerId: string, targetId: string) => {
       const players = gsRef.current.players;
-      const user = players.find(p => p.id === playerId);
-      const target = players.find(p => p.id === targetId);
-      const msgs: Record<PowerUpType, string> = {
-        nuke:      `${user?.name ?? '?'} used NUKE 💥`,
-        garbage:   `${user?.name ?? '?'} dumped GARBAGE on ${target?.name ?? 'next player'} 🗑️`,
-        blindfold: `${user?.name ?? '?'} BLINDFOLDED ${target?.name ?? 'next player'} 🙈`,
-      };
-      if (powerUpMsgTimeoutRef.current) clearTimeout(powerUpMsgTimeoutRef.current);
-      setPowerUpMsg(msgs[type]);
-      powerUpMsgTimeoutRef.current = setTimeout(() => setPowerUpMsg(null), 2800);
+      const triggerer = players.find(p => p.id === triggeringPlayerId)?.name ?? '?';
+      const target = players.find(p => p.id === targetId)?.name ?? '';
+      const info = ROULETTE_INFO[type];
 
-      if (targetId === myId) sound.powerUpHit();
-      else sound.powerUpUse();
+      let msg = `${info.emoji} ${triggerer}: ${info.label}`;
+      if (type === 'blindfold' && target) msg = `${info.emoji} ${target} is BLINDFOLDED!`;
+
+      showRouletteMsg(msg, info.good);
+
+      if (info.good) {
+        sound.rouletteLucky();
+        spawnParticles(40, 60); // warm hue shift for lucky
+        triggerFlash('100,255,100', 0.25);
+      } else {
+        sound.rouletteBad();
+        triggerShake();
+        triggerFlash('255,50,50', 0.3);
+        if (type === 'blindfold') sound.rouletteBlind();
+      }
     });
 
     return () => {
       socket.off('game:state');
       socket.off('game:pieceUpdate');
       socket.off('game:timerTick');
-      socket.off('game:powerUpUsed');
+      socket.off('game:rouletteEvent');
       if (rAFRef.current) cancelAnimationFrame(rAFRef.current);
     };
   }, [myId]);
 
-  // ── Draw board on every state change ────────────────────────────────────────
+  // ── Draw board ───────────────────────────────────────────────────────────────
   useEffect(() => {
     const canvas = boardRef.current;
     if (!canvas) return;
@@ -348,7 +352,7 @@ export default function GameScreen({ initialState, playerName, onLeave }: Props)
     let softInterval: ReturnType<typeof setInterval> | null = null;
 
     const onDown = (e: KeyboardEvent) => {
-      initAudio(); // ensure AudioContext is active after first gesture
+      initAudio();
 
       if (e.code === 'Escape') {
         if (confirmLeaveRef.current) {
@@ -396,25 +400,9 @@ export default function GameScreen({ initialState, playerName, onLeave }: Props)
           if (!softInterval) {
             socket.emit('game:softDrop');
             sound.softDrop();
-            softInterval = setInterval(() => {
-              socket.emit('game:softDrop');
-            }, 80);
+            softInterval = setInterval(() => socket.emit('game:softDrop'), 80);
           }
           break;
-        case 'KeyQ': {
-          const me = gsRef.current.players.find(p => p.id === myId);
-          if (me && me.powerUps.length > 0) {
-            socket.emit('game:usePowerUp', 0);
-          }
-          break;
-        }
-        case 'KeyE': {
-          const me = gsRef.current.players.find(p => p.id === myId);
-          if (me && me.powerUps.length > 1) {
-            socket.emit('game:usePowerUp', 1);
-          }
-          break;
-        }
       }
     };
 
@@ -441,6 +429,7 @@ export default function GameScreen({ initialState, playerName, onLeave }: Props)
   const sortedPlayers = [...gs.players].sort((a, b) => b.score - a.score);
   const myPlayer = gs.players.find(p => p.id === myId);
   const isBlindfolded = isMyTurn && myPlayer?.isBlindfolded === true;
+  const isSolo = gs.players.filter(p => p.isConnected).length <= 1;
 
   return (
     <div className="game-layout">
@@ -461,8 +450,10 @@ export default function GameScreen({ initialState, playerName, onLeave }: Props)
             <span>YOUR TURN!</span>
           </div>
         )}
-        {powerUpMsg && (
-          <div className="powerup-notification">{powerUpMsg}</div>
+        {rouletteMsg && (
+          <div className={`roulette-notification${rouletteMsg.good ? ' good' : ' bad'}`}>
+            {rouletteMsg.text}
+          </div>
         )}
         {confirmLeave && (
           <div className="leave-overlay">
@@ -489,9 +480,9 @@ export default function GameScreen({ initialState, playerName, onLeave }: Props)
 
         {/* Active player */}
         <div className="sidebar-section">
-          <h4>ACTIVE PLAYER</h4>
+          <h4>{isSolo ? 'SOLO MODE' : 'ACTIVE PLAYER'}</h4>
           <div className={`active-player-name ${isMyTurn ? 'is-me' : ''}`}>
-            {activePlayer?.name ?? '—'}{isMyTurn ? ' (you)' : ''}
+            {isSolo ? activePlayer?.name ?? '—' : `${activePlayer?.name ?? '—'}${isMyTurn ? ' (you)' : ''}`}
           </div>
         </div>
 
@@ -507,29 +498,6 @@ export default function GameScreen({ initialState, playerName, onLeave }: Props)
               ))}
             </div>
           )}
-        </div>
-
-        {/* Power-ups */}
-        <div className="sidebar-section">
-          <h4>POWER-UPS {!isMyTurn ? <span className="dim-label">(your turn only)</span> : null}</h4>
-          <div className="powerup-slots">
-            {[0, 1].map(slot => {
-              const pu = myPlayer?.powerUps[slot];
-              return (
-                <div key={slot} className={`powerup-slot${pu ? ' filled' : ''}`}>
-                  {pu ? (
-                    <>
-                      <span className="powerup-icon">{POWERUP_ICONS[pu]}</span>
-                      <span className="powerup-name">{POWERUP_LABELS[pu]}</span>
-                    </>
-                  ) : (
-                    <span style={{ fontSize: 11, color: 'var(--dim)' }}>empty</span>
-                  )}
-                  <span className="slot-key">{slot === 0 ? 'Q' : 'E'}</span>
-                </div>
-              );
-            })}
-          </div>
         </div>
 
         {/* Players */}
@@ -578,8 +546,7 @@ export default function GameScreen({ initialState, playerName, onLeave }: Props)
             ↑ / X &nbsp;rotate CW<br />
             Z &nbsp;&nbsp;&nbsp;&nbsp;rotate CCW<br />
             ↓ &nbsp;&nbsp;&nbsp;&nbsp;soft drop<br />
-            SPACE &nbsp;hard drop<br />
-            Q / E &nbsp;use power-up
+            SPACE &nbsp;hard drop
           </div>
         </div>
 

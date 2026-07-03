@@ -5,7 +5,7 @@ import {
   GameState,
   PlayerInfo,
   PieceState,
-  PowerUpType,
+  RouletteEventType,
   RoomState,
   TURN_SECONDS,
 } from '@tetris/shared';
@@ -24,23 +24,35 @@ import { PieceQueue } from './PieceQueue';
 
 const NEXT_PREVIEW = 3;
 
-// Gravity interval in ms per level (index = level, clamped at last entry)
 const GRAVITY_MS = [1000, 900, 780, 660, 550, 440, 340, 260, 190, 140, 100];
 
 function gravityForLevel(level: number): number {
   return GRAVITY_MS[Math.min(level, GRAVITY_MS.length - 1)];
 }
 
-function rollPowerUp(linesCleared: number): PowerUpType | null {
+function rollRouletteEvent(linesCleared: number): RouletteEventType | null {
   if (linesCleared === 0) return null;
-  const chance = linesCleared >= 4 ? 1 : linesCleared >= 2 ? 0.6 : 0.3;
-  if (Math.random() >= chance) return null;
-  const types: PowerUpType[] = ['nuke', 'garbage', 'blindfold'];
-  return types[Math.floor(Math.random() * types.length)];
+
+  if (linesCleared >= 4) {
+    // Tetris: always triggers an event, pool includes the big ones
+    const pool: RouletteEventType[] = ['lucky_clear', 'garbage_3', 'garbage_3', 'blindfold'];
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
+  if (linesCleared >= 2) {
+    if (Math.random() > 0.65) return null;
+    const pool: RouletteEventType[] = ['lucky_clear', 'garbage_2', 'blindfold'];
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
+  // Single line: 40% chance, no lucky_clear (must earn it)
+  if (Math.random() > 0.4) return null;
+  const pool: RouletteEventType[] = ['garbage_2', 'blindfold'];
+  return pool[Math.floor(Math.random() * pool.length)];
 }
 
 function emptyPlayer(id: string, name: string): PlayerInfo {
-  return { id, name, score: 0, isConnected: true, powerUps: [], isBlindfolded: false };
+  return { id, name, score: 0, isConnected: true, isBlindfolded: false };
 }
 
 export interface GameRoomEvents {
@@ -49,7 +61,12 @@ export interface GameRoomEvents {
   pieceUpdate: (roomCode: string, piece: PieceState) => void;
   timerTick: (roomCode: string, seconds: number) => void;
   gameOver: (roomCode: string, state: GameOverState) => void;
-  powerUpUsed: (roomCode: string, playerId: string, type: PowerUpType, targetId: string) => void;
+  rouletteEvent: (
+    roomCode: string,
+    type: RouletteEventType,
+    triggeringPlayerId: string,
+    targetId: string,
+  ) => void;
 }
 
 declare interface GameRoom {
@@ -139,9 +156,8 @@ class GameRoom extends EventEmitter {
     this.totalLinesForLevel = 0;
     this.turnIndex = 0;
 
-    // Reset per-player state
     for (const [id, p] of this.players) {
-      this.players.set(id, { ...p, score: 0, powerUps: [], isBlindfolded: false });
+      this.players.set(id, { ...p, score: 0, isBlindfolded: false });
     }
 
     this.spawnPiece();
@@ -190,40 +206,6 @@ class GameRoom extends EventEmitter {
     this.lockCurrentPiece();
   }
 
-  handleUsePowerUp(playerId: string, slot: 0 | 1) {
-    if (!this.isActiveTurn(playerId)) return;
-    const player = this.players.get(playerId);
-    if (!player || !player.powerUps[slot]) return;
-
-    const type = player.powerUps[slot];
-    player.powerUps.splice(slot, 1);
-    this.players.set(playerId, player);
-
-    const active = this.activePlayers();
-    const nextPlayer = active.length > 1
-      ? active[(this.turnIndex + 1) % active.length]
-      : null;
-
-    switch (type) {
-      case 'nuke':
-        this.board = nukeBottomRows(this.board, 3);
-        break;
-      case 'garbage':
-        this.board = addGarbageRows(this.board, 2);
-        break;
-      case 'blindfold':
-        if (nextPlayer) {
-          const target = this.players.get(nextPlayer.id)!;
-          target.isBlindfolded = true;
-          this.players.set(nextPlayer.id, target);
-        }
-        break;
-    }
-
-    this.emit('powerUpUsed', this.roomCode, playerId, type, nextPlayer?.id ?? '');
-    this.emitGameState();
-  }
-
   // ─── Internal turn logic ────────────────────────────────────────────────────
 
   private isActiveTurn(playerId: string): boolean {
@@ -264,17 +246,53 @@ class GameRoom extends EventEmitter {
     if (activePlayer) {
       const p = this.players.get(activePlayer.id)!;
       p.score += scoreForLines(linesCleared) + 10;
-      p.isBlindfolded = false; // clear debuff after their turn ends
-
-      // Award power-up
-      const award = rollPowerUp(linesCleared);
-      if (award && p.powerUps.length < 2) {
-        p.powerUps.push(award);
-      }
+      p.isBlindfolded = false; // clear their own debuff after turn ends
       this.players.set(activePlayer.id, p);
     }
 
+    // Roll roulette event on line clears
+    const event = rollRouletteEvent(linesCleared);
+    if (event) {
+      this.applyRouletteEvent(event, activePlayer?.id ?? '');
+    }
+
     this.advanceTurn();
+  }
+
+  private applyRouletteEvent(type: RouletteEventType, triggeringPlayerId: string) {
+    const active = this.activePlayers();
+    // In multiplayer, target the NEXT player; in solo, target self
+    const nextIdx = active.length > 1
+      ? (this.turnIndex + 1) % active.length
+      : this.turnIndex;
+    const targetPlayer = active[nextIdx];
+
+    switch (type) {
+      case 'lucky_clear':
+        this.board = nukeBottomRows(this.board, 2);
+        break;
+      case 'garbage_2':
+        this.board = addGarbageRows(this.board, 2);
+        break;
+      case 'garbage_3':
+        this.board = addGarbageRows(this.board, 3);
+        break;
+      case 'blindfold':
+        if (targetPlayer) {
+          const target = this.players.get(targetPlayer.id)!;
+          target.isBlindfolded = true;
+          this.players.set(targetPlayer.id, target);
+        }
+        break;
+    }
+
+    this.emit(
+      'rouletteEvent',
+      this.roomCode,
+      type,
+      triggeringPlayerId,
+      targetPlayer?.id ?? '',
+    );
   }
 
   private advanceTurn() {
@@ -289,7 +307,7 @@ class GameRoom extends EventEmitter {
     this.startTurnTimer();
     this.startGravity();
     this.emitGameState();
-    this.lastLinesCleared = 0; // reset after broadcast so next state starts clean
+    this.lastLinesCleared = 0;
   }
 
   private startTurnTimer() {
